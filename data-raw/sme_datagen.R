@@ -567,3 +567,271 @@ stopifnot(
   mean(fin_na[collateral_type == "FDR"]) >
     mean(fin_na[collateral_type != "FDR"])
 )
+
+
+## -- 11. Scoring-period snapshots ------------------------------------
+##
+## Six monthly snapshots of new applications (2026-01 .. 2026-06),
+## 400 applications each, generated through the SAME mechanism chain
+## as the development sample, including the acceptance screen and
+## the missingness mechanisms (reusing the calibration constants
+## solved on the development population). Snapshots carry NO
+## outcome columns: 12-month outcomes are not mature, which is the
+## situation PSI/CSI monitoring is designed for.
+##
+## Drift design (a step at snapshot 2026-04, held through 2026-06):
+##   - business_age shifted ~6 years younger (new market segment)
+##   - tenors stretched one level for ~30% of loans (cash-flow strain)
+##   - declared annual_sales inflated ~1.6x (statement quality decays;
+##     verifiable headcount is NOT inflated -- a designed control)
+##   - bureau thin-file rises MECHANICALLY through younger age
+##
+## Pre-registered detection map for the monitoring module:
+##   fire strongly : bureau NA rate, business_age, annual_sales,
+##                   loan_amount, tenor_months
+##   fire mildly   : bureau_score level, rate_pct, rm_tenure, dscr
+##   stay quiet    : employees, branch, sector, check_returns_12m,
+##                   loan_purpose, current_ratio
+## dscr drift is tenor-mediated only: deal-mechanical DSCR cancels
+## sales, so declared-sales inflation raises loan_amount, not dscr.
+## The snapshot data carries no drift flags; ground truth lives in
+## these assertions and DESIGN.md only.
+
+## Mechanism tables shared with the development-sample code.
+## They MUST mirror the constants used above; drift enters only
+## through the three parameters declared here.
+sector_probs   <- c(0.35, 0.15, 0.20, 0.10, 0.10, 0.10)
+branch_probs   <- c(0.30, 0.16, 0.10, 0.09, 0.09, 0.08, 0.09, 0.09)
+amt_frac_tbl   <- c("Working Capital"    = 0.11,
+                    "Machinery Purchase" = 0.22,
+                    "Business Expansion" = 0.18,
+                    "Trade Finance"      = 0.10)
+margin_tbl     <- c(Trading = 0.13, Manufacturing = 0.20, Services = 0.25,
+                    `Agro-processing` = 0.17, Construction = 0.15,
+                    `Transport & Logistics` = 0.22)
+cr_tbl         <- c(Trading = 1.6, Manufacturing = 1.9, Services = 2.3,
+                    `Agro-processing` = 1.8, Construction = 1.7,
+                    `Transport & Logistics` = 2.0)
+rate_tenor_tbl <- c("12" = 0, "24" = 0.6, "36" = 1.1,
+                    "48" = 1.5, "60" = 1.8)
+rate_collat_tbl <- c(`Residential Property` = -1.2,
+                     `Commercial Property`  = -0.8,
+                     `Machinery`            = -0.3,
+                     `Inventory`            =  0.3,
+                     `FDR`                  = -2.0,
+                     `Unsecured`            =  1.8)
+
+## Drift parameters (step at snapshot 4)
+age_shift    <- 6      # years younger
+stretch_p    <- 0.30   # share of loans stretched one tenor level
+sales_infl_m <- 0.45   # median declared-sales inflation: exp(0.45)
+
+n_snap      <- 400
+snap_months <- seq(as.Date("2026-01-01"), by = "month", length.out = 6)
+
+snap_list <- vector("list", 6)
+next_id   <- n_loans + 1L
+
+for (m in seq_len(6)) {
+  drifted <- m >= 4
+  
+  ## firm characteristics -----------------------------------------------
+  
+  s_sector <- factor(sample(levels(sector), n_snap, replace = TRUE,
+                            prob = sector_probs), levels = levels(sector))
+  
+  s_age <- round(rgamma(n_snap, shape = 2.2, rate = 0.15), 1)
+  if (drifted) s_age <- s_age - age_shift
+  s_age <- pmax(1, pmin(40, s_age))
+  
+  s_employees <- round(exp(rnorm(n_snap,
+                                 log(12) + log(emp_mult[s_sector]), 0.65)))
+  s_employees <- as.integer(pmax(2, pmin(200, s_employees)))
+  
+  s_sales <- exp(rnorm(n_snap, log(s_employees * spe[s_sector]), 0.55))
+  if (drifted) {
+    s_sales <- s_sales * exp(rnorm(n_snap, sales_infl_m, 0.20))
+  }
+  s_sales <- pmax(1e6, pmin(2e8, s_sales))
+  s_sales <- round(s_sales / 1e4) * 1e4
+  
+  s_returns <- rpois(n_snap, ret_lambda[s_sector])
+  
+  s_bureau <- 645 + 1.2 * (s_age - 15) - 28 * s_returns + rnorm(n_snap, 0, 70)
+  s_bureau <- as.integer(pmax(300, pmin(900, round(s_bureau))))
+  
+  s_rm <- round(pmin(s_age, 15) * runif(n_snap, 0.1, 0.85), 1)
+  
+  s_purpose <- rep(NA_character_, n_snap)
+  for (s in levels(sector)) {
+    idx <- which(s_sector == s)
+    s_purpose[idx] <- sample(purpose_levels, length(idx),
+                             replace = TRUE, prob = purpose_prob[s, ])
+  }
+  s_purpose <- factor(s_purpose, levels = purpose_levels)
+  
+  ## loan terms ------------------------------------------------------------
+  
+  s_branch <- factor(sample(levels(branch), n_snap, replace = TRUE,
+                            prob = branch_probs), levels = levels(branch))
+  
+  s_amt <- s_sales * amt_frac_tbl[s_purpose] * exp(rnorm(n_snap, 0, 0.45))
+  s_amt <- pmax(5e5, pmin(2e7, s_amt))
+  s_amt <- round(s_amt / 5e4) * 5e4
+  
+  s_tenor <- rep(NA_real_, n_snap)
+  for (p in levels(loan_purpose)) {
+    idx <- which(s_purpose == p)
+    s_tenor[idx] <- sample(tenor_levels, length(idx),
+                           replace = TRUE, prob = tenor_prob[p, ])
+  }
+  if (drifted) {
+    step_up <- sample(c(0, 1), n_snap, replace = TRUE,
+                      prob = c(1 - stretch_p, stretch_p))
+    s_tenor <- pmin(60, s_tenor + 12 * step_up)
+  }
+  
+  s_collat <- rep(NA_character_, n_snap)
+  for (p in levels(loan_purpose)) {
+    idx <- which(s_purpose == p)
+    s_collat[idx] <- sample(collat_levels, length(idx),
+                            replace = TRUE, prob = collat_purpose[p, ])
+  }
+  big <- which(s_amt > 1e7 & s_collat %in% c("FDR", "Inventory"))
+  s_collat[big] <- sample(c("Commercial Property", "Residential Property"),
+                          length(big), replace = TRUE, prob = c(0.6, 0.4))
+  
+  clean_cand <- which(
+    s_purpose %in% c("Working Capital", "Trade Finance") &
+      s_amt <= 3e6 & s_rm > 4
+  )
+  keep_clean <- sample(c(TRUE, FALSE), length(clean_cand),
+                       replace = TRUE, prob = c(0.45, 0.55))
+  s_collat[clean_cand[keep_clean]] <- "Unsecured"
+  s_collat <- factor(s_collat, levels = c(collat_levels, "Unsecured"))
+  
+  s_ltv <- rep(NA_real_, n_snap)
+  sec_idx <- which(s_collat != "Unsecured")
+  u <- runif(length(sec_idx))
+  s_ltv[sec_idx] <- ltv_range[s_collat[sec_idx], "lo"] +
+    u * (ltv_range[s_collat[sec_idx], "hi"] -
+           ltv_range[s_collat[sec_idx], "lo"])
+  s_ltv <- round(s_ltv, 3)
+  
+  s_rate <- 12 + rate_tenor_tbl[as.character(s_tenor)] +
+    rate_collat_tbl[s_collat] +
+    ifelse(s_amt < 1e6, 0.8, ifelse(s_amt > 1e7, -0.5, 0)) +
+    rnorm(n_snap, 0, 0.8)
+  s_rate <- round(pmax(9, pmin(18, s_rate)), 1)
+  
+  ## financial ratios with the same acceptance screen --------------------
+  
+  s_ads <- s_amt / s_tenor * 12
+  s_dscr <- (s_sales * margin_tbl[s_sector]) / s_ads
+  s_dscr <- round(s_dscr * exp(rnorm(n_snap, 0, 0.35)), 2)
+  s_dscr <- pmax(0.2, pmin(6, s_dscr))
+  s_strong <- s_collat %in%
+    c("FDR", "Residential Property", "Commercial Property")
+  repeat {
+    redo <- which(!s_strong & s_dscr < 1.0)
+    if (length(redo) == 0) break
+    s_dscr[redo] <- round((s_sales[redo] * margin_tbl[s_sector[redo]]) /
+                            s_ads[redo] * exp(rnorm(length(redo), 0, 0.35)), 2)
+    s_dscr[redo] <- pmin(6, s_dscr[redo])
+  }
+  
+  s_cr <- round(exp(rnorm(n_snap, log(cr_tbl[s_sector]), 0.30)), 2)
+  s_cr <- pmax(0.4, pmin(6, s_cr))
+  
+  ## missingness: same mechanisms, same solved constants ------------------
+  
+  s_bureau_na <- runif(n_snap) < plogis(
+    bureau_na_a + (-0.16 * (s_age - 15) - 0.50 * (log(s_employees) - log(12))))
+  s_fin_na <- runif(n_snap) < plogis(
+    fin_na_a + (-0.35 * (log(s_sales) - log(3e7)) +
+                  1.00 * as.numeric(s_collat == "FDR")))
+  
+  s_bureau[s_bureau_na] <- NA_integer_
+  s_dscr[s_fin_na] <- NA_real_
+  s_cr[s_fin_na]    <- NA_real_
+  
+  ## assemble --------------------------------------------------------------
+  
+  snap_list[[m]] <- tibble(
+    loan_id           = sprintf("SW-%06d", next_id + seq_len(n_snap) - 1L),
+    app_month         = snap_months[m],
+    sector            = s_sector,
+    business_age      = s_age,
+    employees         = s_employees,
+    annual_sales      = s_sales,
+    check_returns_12m = s_returns,
+    bureau_score      = s_bureau,
+    rm_tenure         = s_rm,
+    loan_purpose      = s_purpose,
+    branch            = s_branch,
+    loan_amount       = s_amt,
+    tenor_months      = factor(s_tenor, levels = tenor_levels),
+    collateral_type   = s_collat,
+    ltv               = s_ltv,
+    rate_pct          = s_rate,
+    dscr              = s_dscr,
+    current_ratio     = s_cr
+  )
+  next_id <- next_id + n_snap
+}
+
+sme_scoring_snaps <- bind_rows(snap_list)
+
+## Sanity checks and DRIFT PRE-REGISTRATION --------------------------
+## Structural invariants mirror the development sample.
+weak_collat_snap <- !(sme_scoring_snaps$collateral_type %in%
+                        c("FDR", "Residential Property", "Commercial Property"))
+stopifnot(
+  nrow(sme_scoring_snaps) == 6 * n_snap,
+  !anyDuplicated(sme_scoring_snaps$loan_id),
+  length(intersect(sme_scoring_snaps$loan_id,
+                   sme_dev_sample$loan_id)) == 0,
+  identical(names(sme_scoring_snaps),
+            setdiff(names(sme_dev_sample),
+                    c("ever_90dpd_12m", "months_to_default", "status_12m"))),
+  all(is.na(sme_scoring_snaps$ltv) ==
+        (sme_scoring_snaps$collateral_type == "Unsecured")),
+  identical(which(is.na(sme_scoring_snaps$dscr)),
+            which(is.na(sme_scoring_snaps$current_ratio))),
+  all(sme_scoring_snaps$dscr[weak_collat_snap &
+                               !is.na(sme_scoring_snaps$dscr)] >= 1.0)
+)
+
+## Drift pre-registration: positive controls must fire, negative
+## controls must stay quiet. These assertions ARE the ground truth
+## the monitoring module will be tested against.
+snap_no   <- as.integer(format(sme_scoring_snaps$app_month, "%m"))
+stable    <- snap_no <= 3
+drifted_s <- snap_no >= 4
+na_bureau <- is.na(sme_scoring_snaps$bureau_score)
+stopifnot(
+  ## stable snapshots reproduce the development DGP
+  mean(na_bureau[stable]) > 0.13,
+  mean(na_bureau[stable]) < 0.23,
+  abs(mean(sme_scoring_snaps$business_age[stable]) -
+        mean(sme_dev_sample$business_age)) < 1.5,
+  ## drift fires where designed (positive controls)
+  mean(na_bureau[drifted_s]) > mean(na_bureau[stable]) + 0.08,
+  mean(sme_scoring_snaps$business_age[drifted_s]) <
+    mean(sme_scoring_snaps$business_age[stable]) - 4,
+  median(sme_scoring_snaps$annual_sales[drifted_s]) >
+    1.3 * median(sme_scoring_snaps$annual_sales[stable]),
+  median(sme_scoring_snaps$loan_amount[drifted_s]) >
+    1.2 * median(sme_scoring_snaps$loan_amount[stable]),
+  mean(sme_scoring_snaps$tenor_months[drifted_s] %in%
+         c("36", "48", "60")) >
+    mean(sme_scoring_snaps$tenor_months[stable] %in%
+           c("36", "48", "60")) + 0.04,
+  mean(sme_scoring_snaps$dscr[drifted_s], na.rm = TRUE) >
+    mean(sme_scoring_snaps$dscr[stable], na.rm = TRUE) + 0.10,
+  mean(sme_scoring_snaps$bureau_score[drifted_s], na.rm = TRUE) <
+    mean(sme_scoring_snaps$bureau_score[stable], na.rm = TRUE) - 2,
+  ## negative controls stay quiet
+  abs(mean(sme_scoring_snaps$employees[drifted_s]) -
+        mean(sme_scoring_snaps$employees[stable])) < 2
+)

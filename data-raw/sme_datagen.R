@@ -364,3 +364,128 @@ stopifnot(
   all(rowSums(collat_purpose) == 1)
 )
 
+## -- 8. True-PD ground truth ----------------------------------------
+##
+## Logistic ground truth with fixed, documented coefficients.
+## The linear predictor is built from CENTERED transforms so the
+## intercept can be calibrated to the target base rate, mirroring
+## portfolio-level calibration of production scorecards. The
+## design is main-effects only, matching the additive model class
+## of the scorecard estimator: the verification question is
+## whether the pipeline recovers known structure, not whether
+## logistic beats a nonlinear DGP.
+##
+## Signal design (IV spectrum):
+##   strong : bureau_score, check_returns_12m, dscr, sector
+##   medium : ltv (unsecured -> effective 1.0), tenor, U-shaped
+##            business_age, loan_purpose, current_ratio
+##   weak   : log(employees)
+##   null   : annual_sales, rate_pct, branch -- zero DIRECT effect;
+##            any apparent signal is confounding through dscr,
+##            loan_amount, tenor and collateral, by design.
+
+## Effective LTV: unsecured facilities carry the risk position of
+## a maximum-LTV loan; secured loans use observed LTV.
+ltv_eff <- ifelse(is.na(ltv), 1.0, ltv)
+
+## U-shaped business age via hinge terms: risk falls as firms
+## mature toward 12 years, is flat through mid-life, and rises
+## mildly for elderly firms (succession risk, dated plant).
+age_young <- pmax(0, 12 - business_age)
+age_old   <- pmax(0, business_age - 25)
+
+sector_fx <- c(Trading = 0.35, Manufacturing = 0.00,
+               Services = -0.15, `Agro-processing` = 0.05,
+               Construction = 0.25, `Transport & Logistics` = 0.10)[sector]
+
+purpose_fx <- c("Working Capital"    =  0.15,
+                "Machinery Purchase" = -0.20,
+                "Business Expansion" =  0.05,
+                "Trade Finance"      =  0.25)[loan_purpose]
+
+lp <- -0.010 * (bureau_score - 645) +    # strong: 100 pts = -1.0 logit
+  0.55 * check_returns_12m +        # strong: per dishonoured cheque
+  -0.45 * (dscr - 2.0) +             # strong: debt coverage
+  sector_fx +                       # strong: direct sector effect
+  1.80 * (ltv_eff - 0.60) +         # medium: collateral position
+  0.011 * (tenor_num - 36) +        # medium: exposure months
+  0.055 * age_young +               # medium: U-shape, left arm
+  0.022 * age_old +                 # medium: U-shape, right arm
+  purpose_fx +                      # medium
+  -0.18 * (current_ratio - 2.0) +    # medium: liquidity
+  -0.06 * (log(employees) - log(12)) # weak: firm scale
+
+## Intercept calibration: solve for the offset that sets the
+## PORTFOLIO-MEAN true PD to the target base rate. Calibrating on
+## the mean of the linear predictor is not equivalent: plogis() is
+## convex over the low-probability region, so mean(plogis(a + lp))
+## exceeds plogis(a + mean(lp)) -- with the lp dispersion here the
+## gap is several percentage points. Root-finding on the portfolio
+## mean calibrates exactly.
+target_bad <- 0.10
+intercept  <- uniroot(
+  function(a) mean(plogis(a + lp)) - target_bad,
+  c(-10, 10)
+)$root
+pd_true    <- plogis(intercept + lp)
+
+## -- 9. Twelve-month outcomes -----------------------------------------
+##
+## Bad definition: ever 90+ DPD within the 12-month observation
+## window (standard application-scorecard definition; Siddiqi,
+## 2006). All cohorts matured before the monitoring period.
+
+ever_90dpd_12m <- rbinom(n_loans, 1, pd_true)
+
+## Month of first 90+ DPD for defaults; early months weighted --
+## failure reveals itself in the first payment cycles.
+def_month_pool <- sample(3:12, n_loans, replace = TRUE,
+                         prob = c(0.06, 0.10, 0.12, 0.13, 0.13,
+                                  0.12, 0.11, 0.09, 0.07, 0.07))
+months_to_default <- as.integer(
+  ifelse(ever_90dpd_12m == 1, def_month_pool, 12L))
+
+## Competing risk: a fraction of non-defaulted loans settle early,
+## more often for small revolving trade facilities.
+p_early <- ifelse(loan_purpose == "Trade Finance" & loan_amount < 2e6,
+                  0.12, 0.05)
+early_settle <- ever_90dpd_12m == 0 & runif(n_loans) < p_early
+
+status_12m <- factor(
+  ifelse(ever_90dpd_12m == 1, "Defaulted",
+         ifelse(early_settle, "Early-settled", "Performing")),
+  levels = c("Performing", "Defaulted", "Early-settled"))
+
+## Attach --------------------------------------------------------------
+
+sme_dev_sample <- sme_dev_sample |>
+  mutate(
+    ever_90dpd_12m    = as.integer(ever_90dpd_12m),
+    months_to_default = months_to_default,
+    status_12m        = status_12m
+  )
+
+## Sanity checks: rate target, internal consistency, and DESIGN
+## INVARIANTS. The generator refuses to emit data violating its
+## own ground truth: bad rates must fall across bureau and DSCR
+## quartiles and rise with dishonoured cheques.
+br_bureau <- tapply(ever_90dpd_12m,
+                    cut(bureau_score, quantile(bureau_score, 0:4/4),
+                        include.lowest = TRUE), mean)
+br_dscr <- tapply(ever_90dpd_12m,
+                  cut(dscr, quantile(dscr, 0:4/4),
+                      include.lowest = TRUE), mean)
+br_ret <- tapply(ever_90dpd_12m,
+                 factor(pmin(check_returns_12m, 2), levels = c(0, 1, 2)),
+                 mean)
+stopifnot(
+  mean(ever_90dpd_12m) > 0.085,
+  mean(ever_90dpd_12m) < 0.115,
+  all(months_to_default %in% 3:12),
+  all(months_to_default[ever_90dpd_12m == 0] == 12L),
+  all((status_12m == "Defaulted") == (ever_90dpd_12m == 1)),
+  all(ever_90dpd_12m[status_12m == "Early-settled"] == 0),
+  all(diff(br_bureau) < 0),
+  all(diff(br_dscr) < 0),
+  all(diff(br_ret) > 0)
+)

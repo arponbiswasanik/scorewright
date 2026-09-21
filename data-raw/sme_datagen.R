@@ -489,3 +489,81 @@ stopifnot(
   all(diff(br_dscr) < 0),
   all(diff(br_ret) > 0)
 )
+
+## -- 10. Informative missingness -------------------------------------
+##
+## Observation process layered over the unchanged ground truth:
+##   (a) Bureau thin-file: young, small firms have no bureau
+##       record -- bureau_score is NA for them.
+##   (b) Unaudited statements: small-turnover applicants and
+##       FDR-secured facilities (cash-collateralised; statements
+##       not demanded) supply no financials -- dscr AND
+##       current_ratio are missing together.
+## Missingness depends on observable mechanisms, never on the
+## masked value itself, and is NOT part of the true-PD function:
+## the DGP from section 8 is untouched. Complete values are
+## retained in-script as recovery ground truth for tests.
+
+## (a) Bureau thin-file ----------------------------------------------
+
+target_bureau_na <- 0.18
+bureau_na_lp <- -0.16 * (business_age - 15) -
+  0.50 * (log(employees) - log(12))
+bureau_na_a <- uniroot(
+  function(a) mean(plogis(a + bureau_na_lp)) - target_bureau_na,
+  c(-10, 10)
+)$root
+bureau_na <- runif(n_loans) < plogis(bureau_na_a + bureau_na_lp)
+
+## (b) Unaudited financial statements --------------------------------
+
+target_fin_na <- 0.12
+fin_na_lp <- -0.35 * (log(annual_sales) - log(3e7)) +
+  1.00 * as.numeric(collateral_type == "FDR")
+fin_na_a <- uniroot(
+  function(a) mean(plogis(a + fin_na_lp)) - target_fin_na,
+  c(-10, 10)
+)$root
+fin_na <- runif(n_loans) < plogis(fin_na_a + fin_na_lp)
+
+## Preserve complete values as ground truth, then mask ---------------
+
+bureau_score_full <- bureau_score
+dscr_full        <- dscr
+current_ratio_full <- current_ratio
+
+bureau_score_obs <- bureau_score
+bureau_score_obs[bureau_na] <- NA_integer_
+
+dscr_obs <- dscr
+current_ratio_obs <- current_ratio
+dscr_obs[fin_na]        <- NA_real_
+current_ratio_obs[fin_na] <- NA_real_
+
+sme_dev_sample <- sme_dev_sample |>
+  mutate(
+    bureau_score  = bureau_score_obs,
+    dscr          = dscr_obs,
+    current_ratio = current_ratio_obs
+  )
+
+## Sanity checks: rates, joint structure, and informativeness ------
+## Thin-file must be riskier THROUGH CORRELATES (young age, lower
+## latent bureau), even though missingness itself carries no
+## direct effect in the DGP.
+stopifnot(
+  mean(is.na(sme_dev_sample$bureau_score)) > 0.15,
+  mean(is.na(sme_dev_sample$bureau_score)) < 0.21,
+  mean(is.na(sme_dev_sample$dscr)) > 0.10,
+  mean(is.na(sme_dev_sample$dscr)) < 0.14,
+  identical(which(is.na(sme_dev_sample$dscr)),
+            which(is.na(sme_dev_sample$current_ratio))),
+  all(is.na(sme_dev_sample$ltv) == (collateral_type == "Unsecured")),
+  mean(pd_true[bureau_na]) - mean(pd_true[!bureau_na]) > 0.012,
+  mean(ever_90dpd_12m[bureau_na]) > mean(ever_90dpd_12m[!bureau_na]),
+  mean(business_age[bureau_na]) < mean(business_age[!bureau_na]) - 3,
+  mean(employees[bureau_na]) < mean(employees[!bureau_na]),
+  mean(log(annual_sales)[fin_na]) < mean(log(annual_sales)[!fin_na]) - 0.2,
+  mean(fin_na[collateral_type == "FDR"]) >
+    mean(fin_na[collateral_type != "FDR"])
+)

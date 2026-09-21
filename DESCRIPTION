@@ -1,17 +1,21 @@
 Package: scorewright
-Title: An Amazing Shiny App
+Type: Package
+Title: SME Credit Scorecard Development, Validation & Monitoring Studio
 Version: 0.0.0.9000
-Authors@R: 
-    person(given = "firstname",
-           family = "lastname",
-           role = c("aut", "cre"),
-           email = "your@email.com")
-Description: What the package does (one paragraph).
-License: What license is it under?
-Imports: 
-    config,
-    golem,
-    shiny
+Authors@R: person(given = "Arpon",
+            family = "Biswas",
+            role = c("aut", "cre"),
+            email = "entityerror3@gmail.com",
+Description: An interactive Shiny application implementing the standard
+    credit scorecard development pipeline: exploratory analysis, WOE/IV
+    coarse classing, points-to-score scaling of a logistic regression
+    model, discrimination and calibration validation, drift monitoring
+    via PSI/CSI, and cutoff strategy analysis. Methodology follows
+    Siddiqi (2006, Credit Risk Scorecards) and Thomas, Edelman & Crook
+    (2017, Credit Scoring and Its Applications).
+License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
-Config/roxygen2/version: 8.1.0
+URL: https://github.com/arponbiswasanik/scorewright
+BugReports: https://github.com/arponbiswasanik/scorewright/issues
+Depends: R (>= 4.1.0)

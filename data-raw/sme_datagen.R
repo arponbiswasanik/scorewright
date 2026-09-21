@@ -173,5 +173,194 @@ stopifnot(
 )
 
 
+## -- 4. Branch -----------------------------------------------------
 
+branch <- sample(
+  c("Dhaka", "Chattogram", "Khulna", "Sylhet", "Rajshahi",
+    "Barishal", "Rangpur", "Bogura"),
+  n_loans, replace = TRUE,
+  prob = c(0.30, 0.16, 0.10, 0.09, 0.09, 0.08, 0.09, 0.09)
+) |>
+  factor(levels = c("Dhaka", "Chattogram", "Khulna", "Sylhet",
+                    "Rajshahi", "Barishal", "Rangpur", "Bogura"))
+# Designed null: independent of risk and of every other field.
+# IV screening must rank branch near zero -- a verification anchor.
+# Dhaka dominates, mirroring a real branch network's concentration.
+
+## -- 5. Loan sizing, tenor, collateral ------------------------------
+
+# Loan sizing: facilities are sized as a fraction of turnover;
+# capex purposes command larger fractions than working capital.
+amt_frac <- c("Working Capital"    = 0.11,
+              "Machinery Purchase" = 0.22,
+              "Business Expansion" = 0.18,
+              "Trade Finance"      = 0.10)[loan_purpose]
+
+loan_amount <- annual_sales * amt_frac *
+  exp(rnorm(n_loans, 0, 0.45))          # officer discretion
+loan_amount <- pmax(5e5, pmin(2e7, loan_amount))
+loan_amount <- round(loan_amount / 5e4) * 5e4    # BDT 50k tickets
+
+# Tenor follows purpose: trade finance revolves at 12 months;
+# machinery capex amortises over 36-60.
+tenor_levels <- c(12, 24, 36, 48, 60)
+tenor_prob <- matrix(
+  c(0.70, 0.25, 0.05, 0.00, 0.00,    # Working Capital
+    0.05, 0.15, 0.40, 0.30, 0.10,    # Machinery Purchase
+    0.20, 0.35, 0.30, 0.10, 0.05,    # Business Expansion
+    0.85, 0.15, 0.00, 0.00, 0.00),   # Trade Finance
+  nrow = 4, byrow = TRUE,
+  dimnames = list(levels(loan_purpose), tenor_levels)
+)
+tenor_num <- rep(NA_integer_, n_loans)
+for (p in levels(loan_purpose)) {
+  idx <- which(loan_purpose == p)
+  tenor_num[idx] <- sample(tenor_levels, length(idx),
+                           replace = TRUE, prob = tenor_prob[p, ])
+}
+
+# Collateral follows purpose; big tickets upgrade to property.
+collat_levels <- c("Residential Property", "Commercial Property",
+                   "Machinery", "Inventory", "FDR")
+collat_purpose <- matrix(
+  c(0.20, 0.10, 0.15, 0.35, 0.20,    # Working Capital
+    0.15, 0.10, 0.55, 0.10, 0.10,    # Machinery Purchase
+    0.35, 0.25, 0.15, 0.10, 0.15,    # Business Expansion
+    0.10, 0.05, 0.05, 0.50, 0.30),   # Trade Finance
+  nrow = 4, byrow = TRUE,
+  dimnames = list(levels(loan_purpose), collat_levels)
+)
+collateral_type <- rep(NA_character_, n_loans)
+for (p in levels(loan_purpose)) {
+  idx <- which(loan_purpose == p)
+  collateral_type[idx] <- sample(collat_levels, length(idx),
+                                 replace = TRUE, prob = collat_purpose[p, ])
+}
+big <- which(loan_amount > 1e7 & collateral_type %in% c("FDR", "Inventory"))
+collateral_type[big] <- sample(c("Commercial Property", "Residential Property"),
+                               length(big), replace = TRUE, prob = c(0.6, 0.4))
+
+# Small clean facilities for long-standing clients: unsecured,
+# producing STRUCTURAL missingness in ltv (undefined without
+# collateral). Distinct from the informative missingness applied
+# later to bureau score and financial ratios.
+clean_cand <- which(
+  loan_purpose %in% c("Working Capital", "Trade Finance") &
+    loan_amount <= 3e6 & rm_tenure > 4
+)
+keep_clean <- sample(c(TRUE, FALSE), length(clean_cand),
+                     replace = TRUE, prob = c(0.45, 0.55))
+clean_idx <- clean_cand[keep_clean]
+collateral_type[clean_idx] <- "Unsecured"
+collateral_type <- factor(collateral_type,
+                          levels = c(collat_levels, "Unsecured"))
+
+## -- 6. LTV and pricing ---------------------------------------------
+
+# LTV: within the advance-rate policy band per collateral class.
+ltv_range <- cbind(lo = c(`Residential Property` = 0.40,
+                          `Commercial Property`  = 0.50,
+                          `Machinery`            = 0.50,
+                          `Inventory`            = 0.40,
+                          `FDR`                  = 0.70),
+                   hi = c(`Residential Property` = 0.70,
+                          `Commercial Property`  = 0.75,
+                          `Machinery`            = 0.80,
+                          `Inventory`            = 0.70,
+                          `FDR`                  = 0.90))
+ltv <- rep(NA_real_, n_loans)
+sec_idx <- which(collateral_type != "Unsecured")
+u <- runif(length(sec_idx))
+ltv[sec_idx] <- ltv_range[collateral_type[sec_idx], "lo"] +
+  u * (ltv_range[collateral_type[sec_idx], "hi"] -
+         ltv_range[collateral_type[sec_idx], "lo"])
+ltv <- round(ltv, 3)
+
+# Pricing: tenor premium, collateral discount, ticket-size loading.
+# Deliberately NOT a function of bureau score: pricing must remain
+# a weak standalone predictor in the ground truth.
+rate_tenor <- c("12" = 0, "24" = 0.6, "36" = 1.1,
+                "48" = 1.5, "60" = 1.8)[as.character(tenor_num)]
+rate_collat <- c(`Residential Property` = -1.2,
+                 `Commercial Property`  = -0.8,
+                 `Machinery`            = -0.3,
+                 `Inventory`            =  0.3,
+                 `FDR`                  = -2.0,
+                 `Unsecured`            =  1.8)[collateral_type]
+rate_size <- ifelse(loan_amount < 1e6, 0.8,
+                    ifelse(loan_amount > 1e7, -0.5, 0))
+rate_pct <- round(12 + rate_tenor + rate_collat + rate_size +
+                    rnorm(n_loans, 0, 0.8), 1)
+rate_pct <- pmax(9, pmin(18, rate_pct))
+
+## -- 7. Financial ratios ---------------------------------------------
+
+# DSCR generated mechanically from the deal, as a credit officer
+# computes it: (sector margin x turnover) / annual debt service.
+sector_margin <- c(Trading = 0.13, Manufacturing = 0.20, Services = 0.25,
+                   `Agro-processing` = 0.17, Construction = 0.15,
+                   `Transport & Logistics` = 0.22)[sector]
+annual_debt_service <- loan_amount / tenor_num * 12
+dscr <- (annual_sales * sector_margin) / annual_debt_service
+dscr <- round(dscr * exp(rnorm(n_loans, 0, 0.35)), 2)
+dscr <- pmax(0.2, pmin(6, dscr))
+
+# Acceptance screening (compensating factors): the lender requires
+# declared coverage >= 1.0 UNLESS collateral is liquid (FDR or
+# property). Weak-collateral deals computing below the floor were
+# never disbursed and are absent from the development sample: for
+# those collateral classes the observed DSCR distribution is the
+# acceptance-conditional (truncated) one. Weak coverage survives
+# only where collateral compensates. This deliberately encodes the
+# accepted-applications selection that reject inference exists to
+# address; see DESIGN.md.
+strong_collat <- collateral_type %in%
+  c("FDR", "Residential Property", "Commercial Property")
+repeat {
+  redo <- which(!strong_collat & dscr < 1.0)
+  if (length(redo) == 0) break
+  dscr[redo] <- round((annual_sales[redo] * sector_margin[redo]) /
+                        annual_debt_service[redo] *
+                        exp(rnorm(length(redo), 0, 0.35)), 2)
+  dscr[redo] <- pmin(6, dscr[redo])
+}
+stopifnot(
+  all(dscr[!strong_collat] >= 1.0),   # floor holds outside liquid collateral
+  all(dscr > 0 & dscr <= 6)
+)
+
+# Current ratio: sector-conditional liquidity; trading runs leaner
+# inventory cycles, services hold more cash.
+cr_center <- c(Trading = 1.6, Manufacturing = 1.9, Services = 2.3,
+               `Agro-processing` = 1.8, Construction = 1.7,
+               `Transport & Logistics` = 2.0)[sector]
+current_ratio <- round(exp(rnorm(n_loans, log(cr_center), 0.30)), 2)
+current_ratio <- pmax(0.4, pmin(6, current_ratio))
+
+## Attach to the development sample --------------------------------
+
+sme_dev_sample <- sme_dev_sample |>
+  mutate(
+    branch         = branch,
+    loan_amount    = loan_amount,
+    tenor_months   = factor(tenor_num, levels = tenor_levels),
+    collateral_type = collateral_type,
+    ltv            = ltv,
+    rate_pct       = rate_pct,
+    dscr           = dscr,
+    current_ratio  = current_ratio
+  )
+
+## Sanity checks (self-checking generation) ------------------------
+
+stopifnot(
+  all(is.na(ltv) == (collateral_type == "Unsecured")),  # structural NA only
+  all(loan_amount >= 5e5 & loan_amount <= 2e7),
+  all(ltv[!is.na(ltv)] >= 0.35 & ltv[!is.na(ltv)] <= 0.93),
+  all(rate_pct >= 9 & rate_pct <= 18),
+  all(dscr > 0 & dscr <= 6),
+  all(current_ratio > 0 & current_ratio <= 6),
+  all(rowSums(tenor_prob) == 1),
+  all(rowSums(collat_purpose) == 1)
+)
 

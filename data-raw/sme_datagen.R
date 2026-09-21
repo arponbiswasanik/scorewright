@@ -835,3 +835,57 @@ stopifnot(
   abs(mean(sme_scoring_snaps$employees[drifted_s]) -
         mean(sme_scoring_snaps$employees[stable])) < 2
 )
+
+## -- 12. Packaging -----------------------------------------------------
+##
+## Structural separation of analysis data and ground truth:
+##   data/            analysis datasets, user-visible via data()
+##   inst/testdata/   ground-truth oracle, readable only via
+##                    system.file() from the test suite
+## The application has no code path to the oracle. The monitoring
+## module is tested blind: drift ground truth lives in the oracle
+## and DESIGN.md, never in the dataset or its documentation.
+
+usethis::use_data(sme_dev_sample, overwrite = TRUE)
+usethis::use_data(sme_scoring_snaps, overwrite = TRUE)
+
+## Oracle: true PD and pre-masking complete values, aligned
+## positionally with the development sample (both carry the
+## arranged-order identifiers, so joins by loan_id are also valid).
+sme_oracle <- tibble(
+  loan_id            = sme_dev_sample$loan_id,
+  pd_true            = pd_true,
+  bureau_score_full  = bureau_score_full,
+  dscr_full          = dscr_full,
+  current_ratio_full = current_ratio_full
+)
+
+## Pre-registered drift map for the monitoring tests.
+drift_map <- list(
+  drifted_months = c("2026-04", "2026-05", "2026-06"),
+  expected_fire  = c("bureau_score", "business_age", "annual_sales",
+                     "loan_amount", "tenor_months"),
+  expected_mild  = c("rm_tenure", "dscr", "rate_pct"),
+  expected_quiet = c("employees", "branch", "sector",
+                     "check_returns_12m", "loan_purpose", "current_ratio")
+)
+
+test_dir <- file.path("inst", "testdata")
+dir.create(test_dir, recursive = TRUE, showWarnings = FALSE)
+saveRDS(list(dev = sme_oracle, drift = drift_map),
+        file.path(test_dir, "sme_ground_truth.rds"))
+
+## Oracle integrity: completeness, positional alignment with the
+## observed sample (non-missing observed values must equal the
+## oracle's complete values), and agreement between true PD and
+## realized outcomes.
+obs_b <- sme_dev_sample$bureau_score
+obs_d <- sme_dev_sample$dscr
+stopifnot(
+  nrow(sme_oracle) == n_loans,
+  !anyNA(sme_oracle$pd_true),
+  !anyNA(sme_oracle$bureau_score_full),
+  all(obs_b[!is.na(obs_b)] == sme_oracle$bureau_score_full[!is.na(obs_b)]),
+  all(obs_d[!is.na(obs_d)] == sme_oracle$dscr_full[!is.na(obs_d)]),
+  cor(sme_oracle$pd_true, sme_dev_sample$ever_90dpd_12m) > 0.2
+)

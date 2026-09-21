@@ -19,3 +19,4 @@ LazyData: true
 URL: https://github.com/arponbiswasanik/scorewright
 BugReports: https://github.com/arponbiswasanik/scorewright/issues
 Depends: R (>= 4.1.0)
+Config/roxygen2/version: 8.1.0

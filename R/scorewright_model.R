@@ -80,6 +80,11 @@ scorewright_model <- function() {
         ok <- !is.na(idx)
         w[ok] <- wt$woe[idx[ok]]
         if (any(!ok)) w[!ok] <- wt$woe[wt$bin == "Missing"]
+      } else if (ch == "check_returns_12m") {
+        # classing must match the scorecard's 0 / 1 / 2+ bins;
+        # raw counts of 3-4 collapse into the 2+ bin
+        f <- factor(pmin(df[[ch]], 2), levels = c(0, 1, 2))
+        w <- wt$woe[as.integer(f)]
       } else {
         w <- unname(setNames(wt$woe, as.character(wt$bin))[
           as.character(df[[ch]])])
@@ -99,7 +104,9 @@ scorewright_model <- function() {
   csi <- matrix(NA_real_, length(all_chars), length(months_txt),
                 dimnames = list(all_chars, months_txt))
   for (ch in all_chars) for (m in months_txt) {
-    exp_x <- dat[[ch]]
+    # read the pristine packaged data: `dat` carries the factor-
+    # converted check_returns_12m from the modelling step above
+    exp_x <- sme_dev_sample[[ch]]
     act_x <- snaps[[ch]][mon == m]
     if (ch %in% num_chars) {
       br <- attr(woe_tables[[ch]], "breaks")

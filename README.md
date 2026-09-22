@@ -8,76 +8,101 @@ An SME credit scorecard development, validation, and monitoring studio, built as
 
 Credit scorecards remain the dominant modelling approach in SME lending. They are transparent, auditable, robust on small structured datasets, and acceptable to regulators in ways that black-box methods often are not. Scorewright implements the complete lifecycle of a scorecard — not only model fitting, but the surrounding discipline that production credit risk practice requires: characteristic binning, weight-of-evidence transformation, score scaling, validation, drift monitoring, and cutoff strategy analysis.
 
+The development sample is synthetic with documented ground truth: a data generator encodes a known signal spectrum, informative missingness mechanisms, an acceptance screen, and pre-registered population drift. Every methodology module is therefore verified against ground truth it could not see at development time — including a blind drift-detection test in which the monitoring module recovered the injected drift without access to the drift flags.
+
 This is a portfolio project built to mirror production methodology (Siddiqi, 2006; Thomas, Edelman and Crook, 2017). It is not an instrument for real lending decisions.
+
+---
+
+## Verification Results
+
+| Verification | Result |
+|---|---|
+| IV ranking vs designed signal spectrum | 4/4 strong predictors ranked top-4; all 5 designed nulls in the bottom five |
+| Scaling reconstruction (points-sum vs linear-predictor routes) | max difference 2.3e-13 |
+| Discrimination vs oracle ceiling | Gini 0.563 vs ceiling 0.591 (95.3%) |
+| Correlation of fitted PD with true PD | 0.871 |
+| Blind drift detection | 4/5 fire channels confirmed in all drifted months; tenor partial (1/3, monthly detectability boundary); zero false alarms |
+| Score-level masking | max score PSI 0.046 (stable) while CSI fired up to 0.54 on characteristics |
+| Cutoff policy trade-off | tighten 456.6 to 558.2: 1,875 goods declined per 295 bads removed (ratio 6.36) |
 
 ---
 
 ## How the Application Works
 
-The application follows the standard scorecard development sequence. A development sample of accepted applications with observed outcomes is prepared and explored, characteristics are coarse-classed into bins and transformed to weights of evidence, a logistic regression is estimated on the transformed inputs, and the fitted model is mapped onto a fixed score scale through explicit factor/offset arithmetic. The resulting scorecard is then validated for discrimination and calibration, monitored across scoring periods for population drift, and evaluated as a decision tool through cutoff strategy analysis.
+The application follows the standard scorecard development sequence. A development sample of accepted applications with observed outcomes is coarse-classed into bins and transformed to weights of evidence, a logistic regression is estimated on the transformed inputs, and the fitted model is mapped onto a fixed score scale through explicit factor/offset arithmetic (600 points at odds 30:1, PDO 40). The resulting scorecard is validated for discrimination and stability, monitored across scoring periods for population drift, and evaluated as a decision tool through cutoff strategy analysis.
 
 ```mermaid
 flowchart LR
-    A["Development sample"] --> B["1. Data preparation and EDA"]
-    B --> C["2. Binning and WOE/IV analysis"]
-    C --> D["3. Logistic model estimation"]
-    D --> E["4. Points-to-score scaling"]
-    E --> F["5. Validation"]
-    E --> H["7. Cutoff strategy analysis"]
-    G["Scoring-period snapshots"] --> I["6. Drift monitoring"]
-    F -.->|"reject and recalibrate"| C
-    I -.->|"drift escalation"| C
+    A["Development sample (5,000 loans)"] --> B["Binning and WOE/IV analysis"]
+    B --> C["Logistic model estimation"]
+    C --> D["Points-to-score scaling"]
+    D --> E["Validation"]
+    D --> H["Cutoff strategy analysis"]
+    G["Scoring-period snapshots (6 months)"] --> I["Drift monitoring (PSI/CSI)"]
+    E -.->|"reject and recalibrate"| B
+    I -.->|"drift escalation"| B
 ```
 
-The dashed edges are the discipline that separates a production scorecard from a fitted model: validation failure and drift escalation both route back into redevelopment, not into silent deployment.
+The dashed edges are the discipline that separates a production scorecard from a fitted model: validation failure and drift escalation both route back into redevelopment, not into silent deployment. The monitoring module is tested blind — drift ground truth lives in a separate oracle the application cannot read.
 
 ---
 
-## Planned Architecture
+## Architecture
 
-The application is structured as a `{golem}` package: a thin presentation layer of Shiny modules, one per pipeline stage, over a package function layer that implements the methodology, reading from a packaged synthetic SME dataset.
+The application is a `{golem}` package: a thin presentation layer of Shiny modules over a package function layer that implements the methodology, reading from packaged synthetic data. The ground-truth oracle ships as a test fixture, structurally inaccessible to the application.
 
 ```mermaid
 flowchart TD
     subgraph presentation["Presentation layer — Shiny"]
-        UI["app_ui: navigation shell"]
-        MODS["Shiny modules, one per pipeline stage"]
+        UI["app_ui: bslib navigation shell"]
+        MODS["Four modules: scorecard, validation, monitoring, cutoff"]
     end
 
-    subgraph logic["Logic layer — package functions"]
-        BIN["Binning and WOE/IV engine"]
-        SCALE["Score scaling arithmetic"]
-        VALID["Validation metrics"]
-        MON["PSI and CSI monitoring"]
-        STRAT["Cutoff strategy functions"]
+    subgraph logic["Logic layer — engine functions (all unit-tested)"]
+        WOE["woe_table"]
+        BIN["bin_numeric"]
+        SCALE["scale_scorecard"]
+        VALID["validate_scorecard"]
+        MON["psi_table"]
+        STRAT["cutoff_analysis / cutoff_curve / cutoff_swap"]
+        MODEL["scorewright_model (pipeline assembly)"]
     end
 
     subgraph data["Data layer"]
-        DAT["Synthetic SME development sample"]
-        SNAP["Monthly scoring-period snapshots"]
+        DAT["sme_dev_sample (5,000 x 21)"]
+        SNAP["sme_scoring_snaps (2,400 x 18)"]
+        ORACLE["Ground-truth oracle (test fixture only)"]
     end
 
     UI --> MODS
-    MODS --> BIN
-    MODS --> SCALE
-    MODS --> VALID
-    MODS --> MON
-    MODS --> STRAT
-    BIN --> DAT
-    VALID --> DAT
-    MON --> SNAP
+    MODS --> MODEL
+    MODEL --> WOE
+    MODEL --> BIN
+    MODEL --> SCALE
+    MODEL --> VALID
+    MODEL --> MON
+    MODEL --> STRAT
+    MODEL --> DAT
+    MODEL --> SNAP
+    ORACLE -.->|"tests only"| VALID
+    ORACLE -.->|"tests only"| MON
 ```
 
-**Target repository layout:**
+---
+
+## Repository Layout
 
 ```
 scorewright/
-├── R/            # binning, WOE/IV, scaling, validation, monitoring functions
-├── data-raw/     # synthetic data generation scripts
-├── data/         # packaged datasets
-├── inst/app/www/ # static assets
-├── tests/        # unit tests, validated against published worked examples
-├── dev/          # golem development scripts
+├── R/                # engine functions and Shiny modules
+├── data-raw/         # synthetic data generator (one seed, 25+ structural invariants)
+├── data/             # packaged datasets (sme_dev_sample, sme_scoring_snaps)
+├── inst/testdata/    # ground-truth oracle (test fixture)
+├── inst/app/www/     # static assets
+├── tests/testthat/   # 225+ assertions from hand-verified worked examples
+├── dev/              # golem scripts and live-fire verification scripts
+├── DESIGN.md         # decision ledger: postmortems and methodology rationale
 └── DESCRIPTION
 ```
 
@@ -87,20 +112,20 @@ scorewright/
 
 | Module | Status |
 |--------|--------|
-| Data preparation and EDA | Planned |
-| Binning and WOE/IV analysis | Planned |
-| Model estimation and scaling | Planned |
-| Model validation | Planned |
-| Drift monitoring (PSI/CSI) | Planned |
-| Cutoff strategy analysis | Planned |
+| Data preparation and EDA | Complete (generator with 25+ structural invariants) |
+| Binning and WOE/IV analysis | Complete (bin_numeric, woe_table) |
+| Model estimation and scaling | Complete (scale_scorecard, two-route exact reconstruction) |
+| Model validation | Complete (validate_scorecard, 95% of oracle ceiling) |
+| Drift monitoring (PSI/CSI) | Complete (psi_table, blind drift test passed) |
+| Cutoff strategy analysis | Complete (cutoff_analysis, dual-policy live fire) |
+| Shiny application | Complete (four modules: scorecard, validation, monitoring, cutoff strategy) |
+| Deployment | In progress |
 
 Module status is updated in the same commit that delivers the module.
 
 ---
 
 ## Methodology and Sources
-
-The design of this project is grounded in the following references:
 
 - Siddiqi, N. (2006). *Credit Risk Scorecards: Developing and Implementing Intelligent Credit Scoring Systems.* Wiley.
 - Siddiqi, N. (2017). *Intelligent Credit Scoring: Foundations and Developers Guide.* Wiley.
@@ -113,13 +138,16 @@ The design of this project is grounded in the following references:
 
 ## Design Decisions
 
-Key trade-offs and their rationale are recorded in `DESIGN.md`: why WOE binning rather than one-hot encoding, why logistic regression rather than gradient boosting for the primary scorecard, and how missing values are handled.
+Key trade-offs and their rationale are recorded in `DESIGN.md`: why WOE binning rather than one-hot encoding, why logistic regression rather than gradient boosting for the primary scorecard, how missing values are handled as informative bins, and a postmortem ledger of nine errors caught by the verification protocol during development.
 
 ---
 
 ## Known Limitations
 
-The development sample contains accepted applications only; reject inference is not applied, and the resulting selection bias is a known limitation of any application scorecard built this way. Further limitations are documented per module as the project matures.
+- In-sample validation only; out-of-time evaluation awaits matured snapshot outcomes.
+- Reject inference is not applied; the development sample contains accepted applications only, with the acceptance screen (compensating-factor DSCR truncation) encoded and documented in the generator.
+- Calibration is assessed through decile bad rates rather than formal tests.
+- The synthetic generator is documented openly — the blindness that matters is architectural (the monitoring module cannot read the oracle), the same structure a real bank has between a model and its validators.
 
 ---
 

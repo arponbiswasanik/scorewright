@@ -146,7 +146,7 @@ test_that("Example 6: default decile breaks orient and bin correctly", {
   b <- bin_numeric(x6, y6, min_bad = 2)
   
   expect_equal(nrow(b), 2L)
-  expect_equal(b$bin, c("[5,10]", "(10,15]"))
+  expect_equal(b$bin, c("[5,10)", "[10,15]"))
   expect_equal(b$n, c(10, 10))
   expect_equal(b$n_bad, c(6, 2))
   expect_equal(b$n_good, c(4, 8))

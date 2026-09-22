@@ -89,7 +89,7 @@ mod_scorecard_server <- function(id, model) {
         # DT resolves style columns by the data column name,
         # not the display header set via colnames
         "points",
-        background = DT::styleColorBar(dt$points, "#16537e"),
+        background = DT::styleColorBar(dt$points, "#9dfae0"),
         backgroundSize = "98% 88%",
         backgroundRepeat = "no-repeat",
         backgroundPosition = "center"

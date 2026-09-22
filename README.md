@@ -1,6 +1,6 @@
 # Scorewright
 
-An SME credit scorecard development, validation, and monitoring studio, built as a production-style Shiny application in R.
+Scorewright is an R package and Shiny application for developing credit scorecards for SME lending. It covers the full scorecard workflow: characteristic binning, weight-of-evidence (WOE) analysis, logistic model estimation, points-to-score scaling, validation, drift monitoring, and cutoff strategy analysis.
 
 ---
 
@@ -10,7 +10,7 @@ Credit scorecards remain the dominant modelling approach in SME lending. They ar
 
 The development sample is synthetic with documented ground truth: a data generator encodes a known signal spectrum, informative missingness mechanisms, an acceptance screen, and pre-registered population drift. Every methodology module is therefore verified against ground truth it could not see at development time — including a blind drift-detection test in which the monitoring module recovered the injected drift without access to the drift flags.
 
-This is a portfolio project built to mirror production methodology (Siddiqi, 2006; Thomas, Edelman and Crook, 2017). It is not an instrument for real lending decisions.
+
 
 ---
 

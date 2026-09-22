@@ -91,6 +91,16 @@ flowchart TD
 
 ---
 
+## Application Screenshots
+
+<img width="1917" height="957" alt="scorecard" src="https://github.com/user-attachments/assets/bf00eb8d-dff6-42ca-9937-e45aaff84e36" />
+<img width="1917" height="957" alt="validation" src="https://github.com/user-attachments/assets/7c731d3e-1e16-4f1c-a8a7-ac9cc36de690" />
+<img width="1917" height="960" alt="monitoring" src="https://github.com/user-attachments/assets/0809f2db-3472-4917-bead-9f37715aefb7" />
+<img width="1917" height="963" alt="cutoff" src="https://github.com/user-attachments/assets/6922807d-c4f1-4e02-9d29-6494d0e1dc78" />
+
+
+---
+
 ## Repository Layout
 
 ```

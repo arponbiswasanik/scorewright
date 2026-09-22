@@ -5,7 +5,7 @@ Version: 0.0.0.9000
 Authors@R: person(given = "Arpon",
             family = "Biswas",
             role = c("aut", "cre"),
-            email = "entityerror3@gmail.com",
+            email = "entityerror3@gmail.com")
 Description: An interactive Shiny application implementing the standard
     credit scorecard development pipeline: exploratory analysis, WOE/IV
     coarse classing, points-to-score scaling of a logistic regression

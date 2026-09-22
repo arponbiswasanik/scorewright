@@ -13,13 +13,6 @@ app_ui <- function() {
     bslib::nav_panel(title = "Scorecard", mod_scorecard_ui("scorecard")),
     bslib::nav_panel(title = "Validation", mod_validation_ui("validation")),
     bslib::nav_panel(title = "Monitoring", mod_monitoring_ui("monitoring")),
-    bslib::nav_panel(title = "Cutoff Strategy", mod_cutoff_ui("cutoff")),
-    bslib::nav_spacer(),
-    bslib::nav_item(
-      shiny::tags$a(
-        "Methodology", href = "https://github.com/arponbiswasanik/scorewright",
-        class = "nav-link", target = "_blank"
-      )
-    )
+    bslib::nav_panel(title = "Cutoff Strategy", mod_cutoff_ui("cutoff"))
   )
 }

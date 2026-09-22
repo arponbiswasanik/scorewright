@@ -13,7 +13,7 @@ Description: An interactive Shiny application implementing the standard
     via PSI/CSI, and cutoff strategy analysis. Methodology follows
     Siddiqi (2006, Credit Risk Scorecards) and Thomas, Edelman & Crook
     (2017, Credit Scoring and Its Applications).
-License: MIT + file LICENSE
+License: MIT + file LICENSE.md
 Encoding: UTF-8
 LazyData: true
 URL: https://github.com/arponbiswasanik/scorewright

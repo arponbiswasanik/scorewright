@@ -89,6 +89,20 @@ mod_validation_server <- function(id, model) {
     
     output$gains_table <- DT::renderDT({
       g <- model$validation$gains
+      ## gains bins were computed on -scores (risk orientation).
+      ## A risk bin "(-472,-341]" covers actual points scores
+      ## [341, 472): negate AND swap the extracted bounds.
+      neg_bins <- g$bin
+      bnds <- regmatches(
+        neg_bins,
+        gregexpr("-?[0-9]+\\.?[0-9]*", neg_bins)
+      )
+      lo_hi <- vapply(bnds, function(b) {
+        v <- as.numeric(b)
+        paste0("[", format(-max(v)), ", ", format(-min(v)), "]")
+      }, character(1))
+      g$bin <- paste0(lo_hi, "  (riskiest first)")
+      
       g$bad_rate <- round(g$bad_rate, 4)
       g$cum_bad_share <- round(g$cum_bad_share, 4)
       g$cum_good_share <- round(g$cum_good_share, 4)
@@ -99,9 +113,9 @@ mod_validation_server <- function(id, model) {
               "cum_bad_share", "cum_good_share", "ks", "lift")],
         rownames = FALSE,
         options = list(pageLength = 10, scrollX = TRUE, dom = "t"),
-        colnames = c("Score bin (riskiest first)", "n", "Bad", "Good",
-                     "Bad rate", "Cum bad share", "Cum good share",
-                     "KS", "Lift")
+        colnames = c("Points-score bin (riskiest first)", "n", "Bad",
+                     "Good", "Bad rate", "Cum bad share",
+                     "Cum good share", "KS", "Lift")
       )
     })
   })

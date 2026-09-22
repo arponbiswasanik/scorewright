@@ -1,41 +1,25 @@
-#' The application User-Interface
+#' UI of the scorewright application
 #'
-#' @param request Internal parameter for `{shiny}`.
-#'     DO NOT REMOVE.
-#' @import shiny
-#' @noRd
-app_ui <- function(request) {
-	tagList(
-		# Leave this function for adding external resources
-		golem_add_external_resources(),
-		# Your application UI logic
-		fluidPage(
-			golem::golem_welcome_page() # Remove this line to start building your UI
-		)
-	)
-}
-
-#' Add external Resources to the Application
-#'
-#' This function is internally used to add external
-#' resources inside the Shiny application.
-#'
-#' @import shiny
-#' @importFrom golem add_resource_path activate_js favicon bundle_resources
-#' @noRd
-golem_add_external_resources <- function() {
-	add_resource_path(
-		"www",
-		app_sys("app/www")
-	)
-
-	tags$head(
-		favicon(),
-		bundle_resources(
-			path = app_sys("app/www"),
-			app_title = "scorewright"
-		)
-		# Add here other external resources
-		# for example, you can add shinyalert::useShinyalert()
-	)
+#' @export
+app_ui <- function() {
+  bslib::page_navbar(
+    theme = bslib::bs_theme(
+      version = 5,
+      bg = "#ffffff",
+      fg = "#1a1a2e",
+      primary = "#16537e"
+    ),
+    title = "Scorewright",
+    bslib::nav_panel(title = "Scorecard", mod_scorecard_ui("scorecard")),
+    bslib::nav_panel(title = "Validation", mod_validation_ui("validation")),
+    bslib::nav_panel(title = "Monitoring", mod_monitoring_ui("monitoring")),
+    bslib::nav_panel(title = "Cutoff Strategy", mod_cutoff_ui("cutoff")),
+    bslib::nav_spacer(),
+    bslib::nav_item(
+      shiny::tags$a(
+        "Methodology", href = "https://github.com/arponbiswasanik/scorewright",
+        class = "nav-link", target = "_blank"
+      )
+    )
+  )
 }

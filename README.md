@@ -153,12 +153,6 @@ Key trade-offs and their rationale are recorded in `DESIGN.md`: why WOE binning 
 
 ## Running the Application
 
-**Development mode:**
-
-```r
-golem::run_dev()
-```
-
 **Installation from GitHub:**
 
 ```r
@@ -166,3 +160,12 @@ golem::run_dev()
 remotes::install_github("arponbiswasanik/scorewright")
 scorewright::run_app()
 ```
+
+**Development mode (from a clone of the repository):**
+
+```r
+install.packages(c("golem", "shiny", "bslib", "DT"))
+golem::run_dev()
+```
+
+The packaged datasets (`sme_dev_sample`, `sme_scoring_snaps`) ship with the repository, so no data regeneration is needed to run the application. The generator (`data-raw/sme_datagen.R`) is included for full reproducibility of the documented ground truth.

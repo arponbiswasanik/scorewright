@@ -153,7 +153,7 @@ Key trade-offs and their rationale are recorded in `DESIGN.md`: why WOE binning 
 
 ## Running the Application
 
-**Installation from GitHub:**
+**Installation from GitHub (requires R 4.1 or later):**
 
 ```r
 # install.packages("remotes")
@@ -165,7 +165,8 @@ scorewright::run_app()
 
 ```r
 install.packages(c("golem", "shiny", "bslib", "DT"))
+# open the cloned repository in RStudio (scorewright.Rproj), then:
 golem::run_dev()
 ```
 
-The packaged datasets (`sme_dev_sample`, `sme_scoring_snaps`) ship with the repository, so no data regeneration is needed to run the application. The generator (`data-raw/sme_datagen.R`) is included for full reproducibility of the documented ground truth.
+The application fits the scorecard pipeline at startup, so the first load takes a few seconds. The packaged datasets (`sme_dev_sample`, `sme_scoring_snaps`) ship with the repository, so no data regeneration is needed to run the application. The generator (`data-raw/sme_datagen.R`) is included for full reproducibility of the documented ground truth.

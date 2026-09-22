@@ -22,14 +22,14 @@ cutoff_swap(score, y, from, to)
 \item{from, to}{Cutoffs to compare for the swap set.}
 }
 \value{
-cutoff_analysis: list with n, n_approved, approval_rate,
-  n_bad_approved, bad_rate_approved, overall_bad_rate,
-  good_approval_rate, bad_approval_rate, bad_capture_above.
-  cutoff_curve: data.frame (cutoff, n_approved, approval_rate,
-  bad_rate_approved, good_approval_rate, bad_capture_above),
-  one row per distinct score, ascending.
-  cutoff_swap: list with n_out, n_out_good, n_out_bad, n_in,
-  n_in_good, n_in_bad, swap_events.
+cutoff_analysis: list with n, n_approved,
+  approval_rate, n_bad_approved, bad_rate_approved,
+  overall_bad_rate, good_approval_rate, bad_approval_rate,
+  bad_rejected_share. cutoff_curve: data.frame (cutoff,
+  n_approved, approval_rate, bad_rate_approved,
+  good_approval_rate, bad_rejected_share), one row per distinct
+  score, ascending. cutoff_swap: list with n_out, n_out_good,
+  n_out_bad, n_in, n_in_good, n_in_bad, swap_events.
 }
 \description{
 Computes approval statistics at a cutoff, the approval/bad-rate
@@ -42,9 +42,13 @@ Orientation follows the points scale: higher score = safer, and
 approval is score >= cutoff (ties approved). Swap sets quantify
 policy moves: tightening from A to B declines loans previously
 approved (n_out, with good/bad split); loosening approves loans
-previously declined (n_in). The good/bad split of swaps is the
+previously declined (n_in). Threshold policies are nested, so
+swaps are one-directional. The good/bad split of swaps is the
 core policy quantity: a tightening that removes mostly goods
 destroys volume without reducing risk.
+
+bad_rejected_share is the share of all bads declined by the
+cutoff (bads sit at low scores; approval is score >= cutoff).
 
 All statistics are computed on the provided sample and are
 in-sample by construction; out-of-time evaluation applies the

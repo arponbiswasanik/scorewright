@@ -2,12 +2,13 @@
 # Worked example: 9 applicants, points score (higher = safer).
 # scores: 540(b) 560(g) 570(g) 590(g) 610(b) 620(g) 650(g) 680(g) 700(g)
 # At cutoff 600 (approve score >= 600): approved = {610,620,650,680,700}
-# = 5 loans, 1 bad. NOTE: threshold policies are nested -- swaps
-# are one-directional (tightening removes, loosening adds).
-# Header literals corrected after test failures caught two author
-# errors: miscounted approvals (5, not 6) and an inverted swap
-# narrative (600->560 is loosening; mixed-direction swaps are
-# impossible under nested thresholds).
+# = 5 loans, 1 bad. Threshold policies are nested -- swaps are
+# one-directional (tightening removes, loosening adds).
+# bad_rejected_share: share of ALL bads declined by the cutoff.
+# Renamed from bad_capture_above after the live-fire revealed the
+# name asserted the opposite of the formula; the original symmetric
+# example could not distinguish the two readings -- asymmetric
+# assertions now pin the semantics.
 
 score <- c(540, 560, 570, 590, 610, 620, 650, 680, 700)
 y     <- c(  1,   0,   0,   0,   1,   0,   0,   0,   0)
@@ -22,7 +23,7 @@ test_that("cutoff statistics reproduce the worked example", {
   expect_equal(ca$overall_bad_rate, 2/9, tolerance = 1e-12)
   expect_equal(ca$good_approval_rate, 4/7, tolerance = 1e-12)
   expect_equal(ca$bad_approval_rate, 1/2, tolerance = 1e-12)
-  expect_equal(ca$bad_capture_above, 1/2, tolerance = 1e-12)
+  expect_equal(ca$bad_rejected_share, 1/2, tolerance = 1e-12)
 })
 
 test_that("swap set: threshold swaps are one-directional", {
@@ -53,12 +54,16 @@ test_that("curve table covers all distinct cutoffs", {
   expect_equal(ct$approval_rate, (9:1)/9, tolerance = 1e-12)
   # at the tightest cutoff (approve only >= 700): bad rate 0
   expect_equal(ct$bad_rate_approved[9], 0)
+  expect_equal(ct$bad_rejected_share[9], 1.0, tolerance = 1e-12)
 })
 
 test_that("orientation: higher score = safer (approved = score >= cutoff)", {
   ca <- cutoff_analysis(score, y, cutoff = 680)
   expect_equal(ca$n_approved, 2L)      # 680, 700
   expect_equal(ca$n_bad_approved, 0L)
+  expect_equal(ca$bad_rejected_share, 1.0, tolerance = 1e-12)  # both bads below
+  ca2 <- cutoff_analysis(score, y, cutoff = 540)
+  expect_equal(ca2$bad_rejected_share, 0, tolerance = 1e-12)   # all approved
 })
 
 test_that("ties at the cutoff are approved (>= convention)", {
